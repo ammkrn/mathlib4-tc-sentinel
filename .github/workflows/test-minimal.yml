@@ -1,0 +1,55 @@
+name: Test Minimal Workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-components:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Test mathlib clone and tag checkout
+        run: |
+          echo "Testing mathlib clone..."
+          git clone --depth 1 https://github.com/leanprover-community/mathlib4.git test-mathlib
+          cd test-mathlib
+          # Use a known stable tag for testing
+          TEST_TAG="v4.20.1"
+          git fetch --depth 1 origin tag $TEST_TAG
+          echo "Testing with tag: $TEST_TAG"
+          git checkout "$TEST_TAG"
+          echo "Successfully checked out tag: $(git describe --tags)"
+      
+      - name: Test Lean setup
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          use-mathlib-cache: true
+          lake-package-directory: test-mathlib
+      
+      - name: Test Rust setup
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      
+      - name: Test config file creation
+        run: |
+          cat > test_config.json << EOF
+          {
+              "export_file_path": "/tmp/test_export",
+              "use_stdin": false,
+              "permitted_axioms": ["propext", "Classical.choice", "Quot.sound", "Lean.trustCompiler"],
+              "unpermitted_axiom_hard_error": false,
+              "nat_extension": true,
+              "string_extension": true,
+              "pp_options": {
+                  "explicit": true
+              },
+              "num_threads": 10,
+              "pp_declars": null,
+              "pp_output_path": null,
+              "pp_to_stdout": false,
+              "print_success_message": true 
+          }
+          EOF
+          echo "Config file created successfully"
+          cat test_config.json

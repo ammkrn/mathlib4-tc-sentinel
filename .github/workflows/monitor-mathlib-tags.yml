@@ -1,0 +1,51 @@
+name: Monitor Mathlib Tags
+
+on:
+  schedule:
+    # Run once daily at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-new-tags:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+      
+      - name: Check for new mathlib tags
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get the latest tag from mathlib4
+          LATEST_TAG=$(curl -s https://api.github.com/repos/leanprover-community/mathlib4/tags | jq -r '.[0].name')
+          
+          # Check if we've already processed this tag
+          if [ -f .last_processed_tag ]; then
+            LAST_PROCESSED=$(cat .last_processed_tag)
+            if [ "$LATEST_TAG" = "$LAST_PROCESSED" ]; then
+              echo "No new tags found. Latest is still: $LATEST_TAG"
+              exit 0
+            fi
+          fi
+          
+          echo "New tag found: $LATEST_TAG"
+          
+          # Trigger the mathlib check workflow
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -d "{\"event_type\":\"mathlib-tag-pushed\",\"client_payload\":{\"tag\":\"$LATEST_TAG\"}}"
+          
+          # Update the last processed tag
+          echo "$LATEST_TAG" > .last_processed_tag
+          
+          # Commit the update
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add .last_processed_tag
+          git commit -m "Update last processed tag to $LATEST_TAG" || echo "No changes to commit"
+          git push || echo "No changes to push"

@@ -1,0 +1,94 @@
+name: Mathlib Type Checker Sentinel
+
+on:
+  repository_dispatch:
+    types: [mathlib-tag-pushed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Mathlib tag to check'
+        required: true
+        default: 'v4.20.1'
+
+jobs:
+  check-mathlib:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+      
+      - name: Clone mathlib4
+        run: |
+          git clone https://github.com/leanprover-community/mathlib4.git
+          cd mathlib4
+          # Checkout the tag from dispatch event or manual input
+          TAG="${{ github.event.client_payload.tag || github.event.inputs.tag }}"
+          echo "Checking out tag: $TAG"
+          git checkout "$TAG"
+      
+      - name: Setup Lean and mathlib
+        uses: leanprover/lean-action@v1
+        with:
+          auto-config: false
+          build: false
+          use-mathlib-cache: true
+          lake-package-directory: mathlib4
+      
+      - name: Clone and build lean4export
+        run: |
+          git clone https://github.com/leanprover/lean4export.git
+          # Ensure lean4export uses the same Lean version as mathlib
+          cp mathlib4/lean-toolchain lean4export/lean-toolchain
+          cd lean4export
+          lake build
+      
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      
+      - name: Clone and build nanoda_lib
+        run: |
+          git clone https://github.com/ammkrn/nanoda_lib.git
+          cd nanoda_lib
+          cargo build --release
+      
+      - name: Generate mathlib export file
+        run: |
+          cd mathlib4
+          lake env ../lean4export/.lake/build/bin/lean4export Mathlib > ../export
+      
+      - name: Create mathlib_config.json
+        run: |
+          cat > mathlib_config.json << EOF
+          {
+              "export_file_path": "$PWD/export",
+              "use_stdin": false,
+              "permitted_axioms": ["propext", "Classical.choice", "Quot.sound", "Lean.trustCompiler"],
+              "unpermitted_axiom_hard_error": false,
+              "nat_extension": true,
+              "string_extension": true,
+              "pp_options": {
+                  "explicit": true
+              },
+              "num_threads": 10,
+              "pp_declars": null,
+              "pp_output_path": null,
+              "pp_to_stdout": false,
+              "print_success_message": true 
+          }
+          EOF
+      
+      - name: Run nanoda_lib type checker
+        run: |
+          cd nanoda_lib
+          cargo run --release -- ../mathlib_config.json
+      
+      - name: Report success
+        if: success()
+        run: echo "Mathlib type checking completed successfully for tag ${{ github.event.client_payload.tag || github.event.inputs.tag }}"
+      
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "Mathlib type checking failed for tag ${{ github.event.client_payload.tag || github.event.inputs.tag }}"
+          exit 1
