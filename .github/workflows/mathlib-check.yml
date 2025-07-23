@@ -37,7 +37,7 @@ jobs:
       
       - name: Clone and build lean4export
         run: |
-          git clone https://github.com/leanprover/lean4export.git
+          git clone https://github.com/ammkrn/lean4export.git
           # Ensure lean4export uses the same Lean version as mathlib
           cp mathlib4/lean-toolchain lean4export/lean-toolchain
           cd lean4export
